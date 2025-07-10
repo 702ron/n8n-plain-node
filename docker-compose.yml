@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n-plain-dev
+    ports:
+      - "5678:5678"
+    volumes:
+      - .:/home/node/.n8n/custom
+      - n8n_data:/home/node/.n8n
+    environment:
+      - N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom
+      - N8N_NODES_INCLUDE=["n8n-nodes-plain"]
+    restart: unless-stopped
+
+volumes:
+  n8n_data:
