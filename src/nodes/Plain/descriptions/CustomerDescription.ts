@@ -119,6 +119,16 @@ export const customerFields: INodeProperties[] = [
 				default: '',
 				description: 'An external ID for the customer (e.g., from your system)',
 			},
+			{
+				displayName: 'Customer Groups',
+				name: 'customerGroupIds',
+				type: 'multiOptions',
+				typeOptions: {
+					loadOptionsMethod: 'getCustomerGroups',
+				},
+				default: [],
+				description: 'Customer groups to assign to this customer',
+			},
 		],
 	},
 	{
@@ -161,6 +171,16 @@ export const customerFields: INodeProperties[] = [
 				type: 'string',
 				default: '',
 				description: 'An external ID for the customer (e.g., from your system)',
+			},
+			{
+				displayName: 'Customer Groups',
+				name: 'customerGroupIds',
+				type: 'multiOptions',
+				typeOptions: {
+					loadOptionsMethod: 'getCustomerGroups',
+				},
+				default: [],
+				description: 'Customer groups to assign to this customer',
 			},
 		],
 	},

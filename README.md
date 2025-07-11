@@ -24,15 +24,18 @@ This node supports the following Plain resources:
 
 ### Customer
 
-- **Create**: Create a new customer
-- **Get**: Get a customer by email
-- **Update**: Update customer information
-- **Delete**: Delete a customer
+- **Create**: Create a new customer with email, name, and optional fields
+- **Get**: Get a customer by email address
+- **Update**: Update customer information including name, email, and customer groups
+- **Delete**: Delete a customer from your workspace
 
 ### Thread
 
-- **Create**: Create a new support thread
-- **Reply**: Reply to an existing thread
+- **Create**: Create a new support thread with title, description, and custom fields
+- **Reply**: Reply to an existing thread with text or markdown content
+- **Get**: Get thread(s) by ID, external ID, customer ID, or customer email
+- **Update**: Update thread title, priority, status, assignment, and custom fields
+- **Get All**: Get all threads with optional filtering by status, priority, and assignment
 
 ### Event
 
@@ -40,8 +43,25 @@ This node supports the following Plain resources:
 
 ### Label
 
-- **Add**: Add a label to a customer
-- **Remove**: Remove a label from a customer
+- **Add**: Add a label to a thread
+- **Remove**: Remove a label from a thread
+
+### Company
+
+- **Create**: Create or update a company with domain name and details
+- **Get**: Get a company by ID or domain name
+- **Update**: Update company information including name, domain, and account owner
+- **Delete**: Delete a company
+- **Get All**: Get all companies with pagination support
+
+### Tenant
+
+- **Upsert**: Create or update a tenant with external ID and details
+- **Get**: Get a tenant by ID or external ID
+- **Add Customers**: Add customers to tenants
+- **Remove Customers**: Remove customers from tenants
+- **Set Customer Tenants**: Set the complete list of tenants for a customer
+- **Get All**: Get all tenants with pagination support
 
 ## Example Usage
 

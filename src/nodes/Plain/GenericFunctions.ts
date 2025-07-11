@@ -103,3 +103,35 @@ export async function plainApiRequestLoadOptions(
 		throw new NodeApiError(this.getNode(), errorData as any);
 	}
 }
+
+export async function getCustomerGroups(
+	this: ILoadOptionsFunctions,
+): Promise<Array<{ name: string; value: string }>> {
+	const query = `
+		query {
+			customerGroups(first: 100) {
+				edges {
+					node {
+						id
+						name
+						key
+					}
+				}
+			}
+		}
+	`;
+
+	try {
+		const response = await plainApiRequestLoadOptions.call(this, query);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const result = response as any;
+		const customerGroups = result?.customerGroups?.edges || [];
+		
+		return customerGroups.map((edge: any) => ({
+			name: edge.node.name,
+			value: edge.node.id,
+		}));
+	} catch (error) {
+		return [];
+	}
+}

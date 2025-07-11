@@ -37,3 +37,6 @@ coverage/
 
 # Logs
 *.log
+
+schema.graphql
+schema.graphql

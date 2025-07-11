@@ -34,6 +34,36 @@ export interface IPlainLabel {
 	};
 }
 
+export interface IPlainTenant {
+	id: string;
+	name: string;
+	externalId: string;
+	url?: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface IPlainCompany {
+	id: string;
+	name: string;
+	domainName: string;
+	logoUrl?: string;
+	createdAt: string;
+	updatedAt: string;
+	tier?: {
+		id: string;
+		name: string;
+	};
+	contractValue?: number;
+	accountOwner?: {
+		id: string;
+		fullName: string;
+		publicName: string;
+	};
+	isDeleted: boolean;
+	deletedAt?: string;
+}
+
 export interface IPlainError {
 	message: string;
 	type: string;

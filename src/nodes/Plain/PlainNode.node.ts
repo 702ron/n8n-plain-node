@@ -13,6 +13,7 @@ import {
 import {
 	plainApiRequest,
 	plainApiRequestLoadOptions,
+	getCustomerGroups,
 } from './GenericFunctions';
 
 import {
@@ -34,6 +35,16 @@ import {
 	labelOperations,
 	labelFields,
 } from './descriptions/LabelDescription';
+
+import {
+	tenantOperations,
+	tenantFields,
+} from './descriptions/TenantDescription';
+
+import {
+	companyOperations,
+	companyFields,
+} from './descriptions/CompanyDescription';
 
 export class PlainNode implements INodeType {
 	description: INodeTypeDescription = {
@@ -63,6 +74,10 @@ export class PlainNode implements INodeType {
 				noDataExpression: true,
 				options: [
 					{
+						name: 'Company',
+						value: 'company',
+					},
+					{
 						name: 'Customer',
 						value: 'customer',
 					},
@@ -75,12 +90,18 @@ export class PlainNode implements INodeType {
 						value: 'label',
 					},
 					{
+						name: 'Tenant',
+						value: 'tenant',
+					},
+					{
 						name: 'Thread',
 						value: 'thread',
 					},
 				],
 				default: 'customer',
 			},
+			...companyOperations,
+			...companyFields,
 			...customerOperations,
 			...customerFields,
 			...threadOperations,
@@ -89,6 +110,8 @@ export class PlainNode implements INodeType {
 			...eventFields,
 			...labelOperations,
 			...labelFields,
+			...tenantOperations,
+			...tenantFields,
 		],
 	};
 
@@ -342,6 +365,7 @@ export class PlainNode implements INodeType {
 					return [];
 				}
 			},
+			getCustomerGroups,
 		},
 	};
 
@@ -354,6 +378,430 @@ export class PlainNode implements INodeType {
 		for (let i = 0; i < items.length; i++) {
 			try {
 				let responseData: IDataObject = {};
+
+				if (resource === 'company') {
+					if (operation === 'create') {
+						const name = this.getNodeParameter('name', i) as string;
+						const domainName = this.getNodeParameter('domainName', i) as string;
+						const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
+
+						const query = `
+							mutation upsertCompany($input: UpsertCompanyInput!) {
+								upsertCompany(input: $input) {
+									company {
+										id
+										name
+										domainName
+										logoUrl
+										createdAt {
+											iso8601
+										}
+										updatedAt {
+											iso8601
+										}
+										tier {
+											id
+											name
+										}
+										contractValue
+										accountOwner {
+											id
+											fullName
+											publicName
+										}
+										isDeleted
+									}
+									result
+									error {
+										message
+										type
+										fields {
+											field
+											message
+										}
+									}
+								}
+							}
+						`;
+
+						const variables: any = {
+							input: {
+								identifier: {
+									companyDomainName: domainName,
+								},
+								name,
+								domainName,
+							},
+						};
+
+						if (additionalFields.contractValue !== undefined) {
+							variables.input.contractValue = additionalFields.contractValue;
+						}
+
+						if (additionalFields.accountOwnerUserId) {
+							variables.input.accountOwnerUserId = additionalFields.accountOwnerUserId;
+						}
+
+						const response = await plainApiRequest.call(this, query, variables);
+						const result = response as any;
+
+						if (result.upsertCompany?.error) {
+							const error = result.upsertCompany.error;
+							let errorMessage = error.message || 'Unknown error';
+							
+							if (error.fields && error.fields.length > 0) {
+								const fieldErrors = error.fields.map((field: any) => `${field.field}: ${field.message}`).join(', ');
+								errorMessage += ` (Field errors: ${fieldErrors})`;
+							}
+							
+							throw new NodeOperationError(this.getNode(), errorMessage);
+						}
+
+						responseData = result.upsertCompany?.company || {};
+					}
+
+					if (operation === 'get') {
+						const getBy = this.getNodeParameter('getBy', i) as string;
+						let query = '';
+						let variables: any = {};
+
+						if (getBy === 'companyId') {
+							const companyId = this.getNodeParameter('companyId', i) as string;
+							query = `
+								query getCompany($companyId: ID!) {
+									company(companyId: $companyId) {
+										id
+										name
+										domainName
+										logoUrl
+										createdAt {
+											iso8601
+										}
+										updatedAt {
+											iso8601
+										}
+										tier {
+											id
+											name
+										}
+										contractValue
+										accountOwner {
+											id
+											fullName
+											publicName
+										}
+										isDeleted
+										deletedAt {
+											iso8601
+										}
+									}
+								}
+							`;
+							variables = { companyId };
+						} else if (getBy === 'domainName') {
+							const domainName = this.getNodeParameter('domainNameValue', i) as string;
+							query = `
+								query searchCompaniesByDomain($searchQuery: CompaniesSearchQuery!) {
+									searchCompanies(searchQuery: $searchQuery) {
+										edges {
+											node {
+												company {
+													id
+													name
+													domainName
+													logoUrl
+													createdAt {
+														iso8601
+													}
+													updatedAt {
+														iso8601
+													}
+													tier {
+														id
+														name
+													}
+													contractValue
+													accountOwner {
+														id
+														fullName
+														publicName
+													}
+													isDeleted
+													deletedAt {
+														iso8601
+													}
+												}
+											}
+										}
+									}
+								}
+							`;
+							variables = { searchQuery: { term: domainName } };
+						} else if (getBy === 'externalId') {
+							// Note: Plain API doesn't seem to support searching by external ID directly
+							// This would require getting all companies and filtering, which isn't efficient
+							throw new NodeOperationError(this.getNode(), 'Getting company by external ID is not supported by Plain API');
+						}
+
+						const response = await plainApiRequest.call(this, query, variables);
+						const result = response as any;
+
+						if (getBy === 'companyId') {
+							responseData = result.company || {};
+						} else if (getBy === 'domainName') {
+							// For domain name search, we get back search results
+							const companies = result.searchCompanies?.edges?.map((edge: any) => edge.node.company) || [];
+							// Find exact match for domain name
+							const exactMatch = companies.find((company: any) => 
+								company.domainName.toLowerCase() === (variables.searchQuery.term as string).toLowerCase()
+							);
+							responseData = exactMatch || (companies.length > 0 ? companies[0] : {});
+						}
+					}
+
+					if (operation === 'getAll') {
+						const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
+						const limit = (additionalFields.limit as number) || 50;
+						const after = additionalFields.after as string;
+						const before = additionalFields.before as string;
+						const includeDeleted = additionalFields.includeDeleted as boolean;
+
+						const query = `
+							query getAllCompanies($first: Int, $after: String, $last: Int, $before: String, $filters: CompaniesFilter) {
+								companies(first: $first, after: $after, last: $last, before: $before, filters: $filters) {
+									edges {
+										cursor
+										node {
+											id
+											name
+											domainName
+											logoUrl
+											createdAt {
+												iso8601
+											}
+											updatedAt {
+												iso8601
+											}
+											tier {
+												id
+												name
+											}
+											contractValue
+											accountOwner {
+												id
+												fullName
+												publicName
+											}
+											isDeleted
+											deletedAt {
+												iso8601
+											}
+										}
+									}
+									pageInfo {
+										hasNextPage
+										hasPreviousPage
+										startCursor
+										endCursor
+									}
+								}
+							}
+						`;
+
+						const variables: any = {};
+
+						// Handle pagination
+						if (before) {
+							variables.last = limit;
+							variables.before = before;
+						} else {
+							variables.first = limit;
+							if (after) {
+								variables.after = after;
+							}
+						}
+
+						// Handle filters
+						if (includeDeleted !== undefined) {
+							variables.filters = {
+								isDeleted: includeDeleted,
+							};
+						}
+
+						const response = await plainApiRequest.call(this, query, variables);
+						const result = response as any;
+
+						const companies = result.companies?.edges?.map((edge: any) => edge.node) || [];
+						const pageInfo = result.companies?.pageInfo || {};
+
+						if (companies.length === 0) {
+							responseData = {
+								message: 'No companies found',
+								pageInfo: pageInfo,
+							};
+						} else if (companies.length === 1) {
+							responseData = {
+								...companies[0],
+								_metadata: {
+									pageInfo: pageInfo,
+									totalCount: 1,
+								},
+							};
+						} else {
+							responseData = {
+								summary: {
+									totalCompanies: companies.length,
+									pageInfo: pageInfo,
+								},
+								companies: companies,
+							};
+						}
+					}
+
+					if (operation === 'update') {
+						const companyIdentifier = this.getNodeParameter('companyIdentifier', i) as any;
+						const updateFields = this.getNodeParameter('updateFields', i, {}) as IDataObject;
+
+						// Check if any fields to update are provided
+						if (!updateFields?.fields || !Array.isArray(updateFields.fields) || updateFields.fields.length === 0) {
+							throw new NodeOperationError(this.getNode(), 'At least one field to update must be specified');
+						}
+
+						const query = `
+							mutation upsertCompany($input: UpsertCompanyInput!) {
+								upsertCompany(input: $input) {
+									company {
+										id
+										name
+										domainName
+										logoUrl
+										createdAt {
+											iso8601
+										}
+										updatedAt {
+											iso8601
+										}
+										tier {
+											id
+											name
+										}
+										contractValue
+										accountOwner {
+											id
+											fullName
+											publicName
+										}
+										isDeleted
+									}
+									result
+									error {
+										message
+										type
+										fields {
+											field
+											message
+										}
+									}
+								}
+							}
+						`;
+
+						// Build company identifier
+						const identifier: any = {};
+						if (!companyIdentifier?.identifier) {
+							throw new NodeOperationError(this.getNode(), 'Company identifier is required');
+						}
+						const identifierData = companyIdentifier.identifier;
+						if (identifierData.identifyBy === 'companyId') {
+							identifier.companyId = identifierData.companyId;
+						} else if (identifierData.identifyBy === 'domainName') {
+							identifier.companyDomainName = identifierData.domainName;
+						}
+
+						const variables: any = {
+							input: {
+								identifier,
+							},
+						};
+
+						// Process each field to update
+						updateFields.fields.forEach((field: any) => {
+							const fieldName = field.fieldName;
+							const fieldValue = field[fieldName];
+
+							if (fieldValue !== undefined && fieldValue !== '') {
+								if (fieldName === 'name') {
+									variables.input.name = fieldValue;
+								} else if (fieldName === 'domainName') {
+									variables.input.domainName = fieldValue;
+								} else if (fieldName === 'contractValue') {
+									variables.input.contractValue = fieldValue;
+								} else if (fieldName === 'accountOwnerUserId') {
+									variables.input.accountOwnerUserId = fieldValue;
+								}
+							}
+						});
+
+						const response = await plainApiRequest.call(this, query, variables);
+						const result = response as any;
+
+						if (result.upsertCompany?.error) {
+							const error = result.upsertCompany.error;
+							let errorMessage = error.message || 'Unknown error';
+							
+							if (error.fields && error.fields.length > 0) {
+								const fieldErrors = error.fields.map((field: any) => `${field.field}: ${field.message}`).join(', ');
+								errorMessage += ` (Field errors: ${fieldErrors})`;
+							}
+							
+							throw new NodeOperationError(this.getNode(), errorMessage);
+						}
+
+						responseData = result.upsertCompany?.company || {};
+					}
+
+					if (operation === 'delete') {
+						const companyIdentifier = this.getNodeParameter('companyIdentifier', i) as any;
+
+						const query = `
+							mutation deleteCompany($input: DeleteCompanyInput!) {
+								deleteCompany(input: $input) {
+									error {
+										message
+										type
+									}
+								}
+							}
+						`;
+
+						// Build company identifier
+						const identifier: any = {};
+						if (!companyIdentifier?.identifier) {
+							throw new NodeOperationError(this.getNode(), 'Company identifier is required');
+						}
+						const identifierData = companyIdentifier.identifier;
+						if (identifierData.identifyBy === 'companyId') {
+							identifier.companyId = identifierData.companyId;
+						} else if (identifierData.identifyBy === 'domainName') {
+							identifier.companyDomainName = identifierData.domainName;
+						}
+
+						const variables = {
+							input: {
+								companyIdentifier: identifier,
+							},
+						};
+
+						const response = await plainApiRequest.call(this, query, variables);
+						const result = response as any;
+
+						if (result.deleteCompany?.error) {
+							throw new NodeOperationError(this.getNode(), result.deleteCompany.error.message);
+						}
+
+						responseData = { success: true };
+					}
+				}
 
 				if (resource === 'customer') {
 					if (operation === 'create') {
@@ -438,6 +886,48 @@ export class PlainNode implements INodeType {
 						}
 						
 						responseData = result.upsertCustomer?.customer || {};
+
+						// Handle customer groups if provided
+						if (additionalFields.customerGroupIds && Array.isArray(additionalFields.customerGroupIds) && additionalFields.customerGroupIds.length > 0) {
+							const customerId = responseData.id;
+							if (customerId) {
+								const groupQuery = `
+									mutation addCustomerToCustomerGroups($input: AddCustomerToCustomerGroupsInput!) {
+										addCustomerToCustomerGroups(input: $input) {
+											customerGroupMemberships {
+												customerGroup {
+													id
+													name
+												}
+											}
+											error {
+												message
+												type
+											}
+										}
+									}
+								`;
+
+								const groupVariables = {
+									input: {
+										customerId,
+										customerGroupIdentifiers: additionalFields.customerGroupIds.map((groupId: any) => ({
+											customerGroupId: groupId,
+										})),
+									},
+								};
+
+								const groupResponse = await plainApiRequest.call(this, groupQuery, groupVariables);
+								const groupResult = groupResponse as any;
+
+								if (groupResult.addCustomerToCustomerGroups?.error) {
+									throw new NodeOperationError(this.getNode(), groupResult.addCustomerToCustomerGroups.error.message);
+								}
+
+								// Add group information to response
+								responseData.customerGroups = groupResult.addCustomerToCustomerGroups?.customerGroupMemberships?.map((membership: any) => membership.customerGroup) || [];
+							}
+						}
 					}
 
 					if (operation === 'get') {
@@ -532,13 +1022,9 @@ export class PlainNode implements INodeType {
 							},
 						};
 
-						console.log('Update Variables:', JSON.stringify(variables, null, 2));
-
 						const response = await plainApiRequest.call(this, query, variables);
 						// eslint-disable-next-line @typescript-eslint/no-explicit-any
 						const result = response as any;
-						
-						console.log('Update Response:', JSON.stringify(result, null, 2));
 						
 						if (result.upsertCustomer?.error) {
 							const error = result.upsertCustomer.error;
@@ -553,6 +1039,48 @@ export class PlainNode implements INodeType {
 						}
 						
 						responseData = result.upsertCustomer?.customer || {};
+
+						// Handle customer groups if provided in update
+						if (updateFields.customerGroupIds && Array.isArray(updateFields.customerGroupIds)) {
+							if (updateFields.customerGroupIds.length > 0) {
+								// Add customer to groups
+								const groupQuery = `
+									mutation addCustomerToCustomerGroups($input: AddCustomerToCustomerGroupsInput!) {
+										addCustomerToCustomerGroups(input: $input) {
+											customerGroupMemberships {
+												customerGroup {
+													id
+													name
+												}
+											}
+											error {
+												message
+												type
+											}
+										}
+									}
+								`;
+
+								const groupVariables = {
+									input: {
+										customerId,
+										customerGroupIdentifiers: updateFields.customerGroupIds.map((groupId: any) => ({
+											customerGroupId: groupId,
+										})),
+									},
+								};
+
+								const groupResponse = await plainApiRequest.call(this, groupQuery, groupVariables);
+								const groupResult = groupResponse as any;
+
+								if (groupResult.addCustomerToCustomerGroups?.error) {
+									throw new NodeOperationError(this.getNode(), groupResult.addCustomerToCustomerGroups.error.message);
+								}
+
+								// Add group information to response
+								responseData.customerGroups = groupResult.addCustomerToCustomerGroups?.customerGroupMemberships?.map((membership: any) => membership.customerGroup) || [];
+							}
+						}
 					}
 
 					if (operation === 'delete') {
@@ -2272,6 +2800,428 @@ export class PlainNode implements INodeType {
 					}
 				}
 
+				if (resource === 'tenant') {
+					if (operation === 'upsert') {
+						const name = this.getNodeParameter('name', i) as string;
+						const externalId = this.getNodeParameter('externalId', i) as string;
+						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+
+						const query = `
+							mutation upsertTenant($input: UpsertTenantInput!) {
+								upsertTenant(input: $input) {
+									tenant {
+										id
+										name
+										externalId
+										url
+										createdAt {
+											iso8601
+										}
+										updatedAt {
+											iso8601
+										}
+									}
+									result
+									error {
+										message
+										type
+									}
+								}
+							}
+						`;
+
+						const variables = {
+							input: {
+								identifier: {
+									externalId,
+								},
+								name,
+								externalId,
+								...(additionalFields.url && { url: { value: additionalFields.url } }),
+							},
+						};
+
+						const response = await plainApiRequest.call(this, query, variables);
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const result = response as any;
+						
+						if (result.upsertTenant?.error) {
+							throw new NodeOperationError(this.getNode(), result.upsertTenant.error.message);
+						}
+						
+						responseData = result.upsertTenant?.tenant || {};
+					}
+
+					if (operation === 'get') {
+						const getBy = this.getNodeParameter('getBy', i) as string;
+						let query = '';
+						let variables: any = {};
+
+						if (getBy === 'tenantId') {
+							const tenantId = this.getNodeParameter('tenantId', i) as string;
+							query = `
+								query getTenant($tenantId: ID!) {
+									tenant(tenantId: $tenantId) {
+										id
+										name
+										externalId
+										url
+										createdAt {
+											iso8601
+										}
+										updatedAt {
+											iso8601
+										}
+									}
+								}
+							`;
+							variables = { tenantId };
+						} else if (getBy === 'externalId') {
+							const externalId = this.getNodeParameter('externalIdValue', i) as string;
+							query = `
+								query getTenantByExternalId($externalId: String!) {
+									tenantByExternalId(externalId: $externalId) {
+										id
+										name
+										externalId
+										url
+										createdAt {
+											iso8601
+										}
+										updatedAt {
+											iso8601
+										}
+									}
+								}
+							`;
+							variables = { externalId };
+						}
+
+						const response = await plainApiRequest.call(this, query, variables);
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const result = response as any;
+						
+						if (getBy === 'tenantId') {
+							responseData = result.tenant || {};
+						} else {
+							responseData = result.tenantByExternalId || {};
+						}
+					}
+
+					if (operation === 'addCustomers') {
+						const customerIdentifier = this.getNodeParameter('customerIdentifier', i) as any;
+						const tenantIdentifiers = this.getNodeParameter('tenantIdentifiers', i) as any;
+
+						const query = `
+							mutation addCustomerToTenants($input: AddCustomerToTenantsInput!) {
+								addCustomerToTenants(input: $input) {
+									customer {
+										id
+										fullName
+										email {
+											email
+										}
+									}
+									error {
+										message
+										type
+									}
+								}
+							}
+						`;
+
+						// Build customer identifier
+						const customerIdentifierInput: any = {};
+						if (!customerIdentifier?.customer) {
+							throw new NodeOperationError(this.getNode(), 'Customer identifier is required');
+						}
+						const customerData = customerIdentifier.customer;
+						if (!customerData || !customerData.identifyBy) {
+							throw new NodeOperationError(this.getNode(), 'Customer identifier data is incomplete');
+						}
+						if (customerData.identifyBy === 'customerId') {
+							customerIdentifierInput.customerId = customerData.customerId;
+						} else if (customerData.identifyBy === 'emailAddress') {
+							customerIdentifierInput.emailAddress = customerData.emailAddress;
+						} else if (customerData.identifyBy === 'externalId') {
+							customerIdentifierInput.externalId = customerData.externalId;
+						}
+
+						// Build tenant identifiers
+						if (!tenantIdentifiers?.tenant || !Array.isArray(tenantIdentifiers.tenant) || tenantIdentifiers.tenant.length === 0) {
+							throw new NodeOperationError(this.getNode(), 'Tenant identifiers are required');
+						}
+						const tenantIdentifiersInput = tenantIdentifiers.tenant.map((tenant: any) => {
+							if (!tenant || !tenant.identifyBy) {
+								throw new NodeOperationError(this.getNode(), 'Tenant identifier data is incomplete');
+							}
+							const tenantId: any = {};
+							if (tenant.identifyBy === 'tenantId') {
+								tenantId.tenantId = tenant.tenantId;
+							} else if (tenant.identifyBy === 'externalId') {
+								tenantId.externalId = tenant.externalId;
+							}
+							return tenantId;
+						});
+
+						const variables = {
+							input: {
+								customerIdentifier: customerIdentifierInput,
+								tenantIdentifiers: tenantIdentifiersInput,
+							},
+						};
+
+						const response = await plainApiRequest.call(this, query, variables);
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const result = response as any;
+						
+						if (result.addCustomerToTenants?.error) {
+							const error = result.addCustomerToTenants.error;
+							let errorMessage = error.message || 'Unknown error';
+							
+							if (error.fields && error.fields.length > 0) {
+								const fieldErrors = error.fields.map((field: any) => `${field.field}: ${field.message}`).join(', ');
+								errorMessage += ` (Field errors: ${fieldErrors})`;
+							}
+							
+							throw new NodeOperationError(this.getNode(), errorMessage);
+						}
+						
+						responseData = result.addCustomerToTenants?.customer || {};
+					}
+
+					if (operation === 'removeCustomers') {
+						const customerIdentifier = this.getNodeParameter('customerIdentifier', i) as any;
+						const tenantIdentifiers = this.getNodeParameter('tenantIdentifiers', i) as any;
+
+						const query = `
+							mutation removeCustomerFromTenants($input: RemoveCustomerFromTenantsInput!) {
+								removeCustomerFromTenants(input: $input) {
+									customer {
+										id
+										fullName
+										email {
+											email
+										}
+									}
+									error {
+										message
+										type
+									}
+								}
+							}
+						`;
+
+						// Build customer identifier
+						const customerIdentifierInput: any = {};
+						if (!customerIdentifier?.customer) {
+							throw new NodeOperationError(this.getNode(), 'Customer identifier is required');
+						}
+						const customerData = customerIdentifier.customer;
+						if (!customerData || !customerData.identifyBy) {
+							throw new NodeOperationError(this.getNode(), 'Customer identifier data is incomplete');
+						}
+						if (customerData.identifyBy === 'customerId') {
+							customerIdentifierInput.customerId = customerData.customerId;
+						} else if (customerData.identifyBy === 'emailAddress') {
+							customerIdentifierInput.emailAddress = customerData.emailAddress;
+						} else if (customerData.identifyBy === 'externalId') {
+							customerIdentifierInput.externalId = customerData.externalId;
+						}
+
+						// Build tenant identifiers
+						if (!tenantIdentifiers?.tenant || !Array.isArray(tenantIdentifiers.tenant) || tenantIdentifiers.tenant.length === 0) {
+							throw new NodeOperationError(this.getNode(), 'Tenant identifiers are required');
+						}
+						const tenantIdentifiersInput = tenantIdentifiers.tenant.map((tenant: any) => {
+							if (!tenant || !tenant.identifyBy) {
+								throw new NodeOperationError(this.getNode(), 'Tenant identifier data is incomplete');
+							}
+							const tenantId: any = {};
+							if (tenant.identifyBy === 'tenantId') {
+								tenantId.tenantId = tenant.tenantId;
+							} else if (tenant.identifyBy === 'externalId') {
+								tenantId.externalId = tenant.externalId;
+							}
+							return tenantId;
+						});
+
+						const variables = {
+							input: {
+								customerIdentifier: customerIdentifierInput,
+								tenantIdentifiers: tenantIdentifiersInput,
+							},
+						};
+
+						const response = await plainApiRequest.call(this, query, variables);
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const result = response as any;
+						
+						if (result.removeCustomerFromTenants?.error) {
+							throw new NodeOperationError(this.getNode(), result.removeCustomerFromTenants.error.message);
+						}
+						
+						responseData = result.removeCustomerFromTenants?.customer || {};
+					}
+
+					if (operation === 'setCustomerTenants') {
+						const customerIdentifier = this.getNodeParameter('customerIdentifier', i) as any;
+						const tenantIdentifiers = this.getNodeParameter('tenantIdentifiers', i) as any;
+
+						const query = `
+							mutation setCustomerTenants($input: SetCustomerTenantsInput!) {
+								setCustomerTenants(input: $input) {
+									customer {
+										id
+										fullName
+										email {
+											email
+										}
+									}
+									error {
+										message
+										type
+									}
+								}
+							}
+						`;
+
+						// Build customer identifier
+						const customerIdentifierInput: any = {};
+						if (!customerIdentifier?.customer) {
+							throw new NodeOperationError(this.getNode(), 'Customer identifier is required');
+						}
+						const customerData = customerIdentifier.customer;
+						if (!customerData || !customerData.identifyBy) {
+							throw new NodeOperationError(this.getNode(), 'Customer identifier data is incomplete');
+						}
+						if (customerData.identifyBy === 'customerId') {
+							customerIdentifierInput.customerId = customerData.customerId;
+						} else if (customerData.identifyBy === 'emailAddress') {
+							customerIdentifierInput.emailAddress = customerData.emailAddress;
+						} else if (customerData.identifyBy === 'externalId') {
+							customerIdentifierInput.externalId = customerData.externalId;
+						}
+
+						// Build tenant identifiers
+						if (!tenantIdentifiers?.tenant || !Array.isArray(tenantIdentifiers.tenant) || tenantIdentifiers.tenant.length === 0) {
+							throw new NodeOperationError(this.getNode(), 'Tenant identifiers are required');
+						}
+						const tenantIdentifiersInput = tenantIdentifiers.tenant.map((tenant: any) => {
+							if (!tenant || !tenant.identifyBy) {
+								throw new NodeOperationError(this.getNode(), 'Tenant identifier data is incomplete');
+							}
+							const tenantId: any = {};
+							if (tenant.identifyBy === 'tenantId') {
+								tenantId.tenantId = tenant.tenantId;
+							} else if (tenant.identifyBy === 'externalId') {
+								tenantId.externalId = tenant.externalId;
+							}
+							return tenantId;
+						});
+
+						const variables = {
+							input: {
+								customerIdentifier: customerIdentifierInput,
+								tenantIdentifiers: tenantIdentifiersInput,
+							},
+						};
+
+						const response = await plainApiRequest.call(this, query, variables);
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const result = response as any;
+						
+						if (result.setCustomerTenants?.error) {
+							throw new NodeOperationError(this.getNode(), result.setCustomerTenants.error.message);
+						}
+						
+						responseData = result.setCustomerTenants?.customer || {};
+					}
+
+					if (operation === 'getAll') {
+						const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
+						const limit = (additionalFields.limit as number) || 50;
+						const after = additionalFields.after as string;
+						const before = additionalFields.before as string;
+
+						const query = `
+							query getAllTenants($first: Int, $after: String, $last: Int, $before: String) {
+								tenants(first: $first, after: $after, last: $last, before: $before) {
+									edges {
+										cursor
+										node {
+											id
+											name
+											externalId
+											url
+											createdAt {
+												iso8601
+											}
+											updatedAt {
+												iso8601
+											}
+										}
+									}
+									pageInfo {
+										hasNextPage
+										hasPreviousPage
+										startCursor
+										endCursor
+									}
+								}
+							}
+						`;
+
+						const variables: any = {};
+
+						// Handle pagination - use either forward or backward pagination, not both
+						if (before) {
+							variables.last = limit;
+							variables.before = before;
+						} else {
+							variables.first = limit;
+							if (after) {
+								variables.after = after;
+							}
+						}
+
+						const response = await plainApiRequest.call(this, query, variables);
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const result = response as any;
+						
+						// Return the tenants as individual items for n8n
+						const tenants = result.tenants?.edges?.map((edge: any) => edge.node) || [];
+						const pageInfo = result.tenants?.pageInfo || {};
+						
+						// For multiple tenants, we need to handle them specially
+						if (tenants.length === 0) {
+							responseData = {
+								message: 'No tenants found',
+								pageInfo: pageInfo,
+							};
+						} else if (tenants.length === 1) {
+							// Single tenant - return it directly with metadata
+							responseData = {
+								...tenants[0],
+								_metadata: {
+									pageInfo: pageInfo,
+									totalCount: 1,
+								},
+							};
+						} else {
+							// Multiple tenants - we'll return summary data here
+							// and individual tenants will be handled below
+							responseData = {
+								summary: {
+									totalTenants: tenants.length,
+									pageInfo: pageInfo,
+								},
+								tenants: tenants,
+							};
+						}
+					}
+				}
+
 				// Special handling for operations that return multiple items
 				if ((operation === 'getAll' || (operation === 'get' && responseData.threads)) && responseData.threads && Array.isArray(responseData.threads)) {
 					// For getAll operation, create separate execution data for each thread
@@ -2287,6 +3237,38 @@ export class PlainNode implements INodeType {
 						};
 						const executionData = this.helpers.constructExecutionMetaData(
 							this.helpers.returnJsonArray(threadWithMetadata),
+							{ itemData: { item: i } },
+						);
+						returnData.push(...executionData);
+					}
+				} else if (resource === 'company' && operation === 'getAll' && responseData.companies && Array.isArray(responseData.companies)) {
+					// For company getAll operation, create separate execution data for each company
+					for (const company of responseData.companies) {
+						const companyWithMetadata = {
+							...company,
+							_metadata: {
+								pageInfo: (responseData as any).summary?.pageInfo || (responseData as any).pageInfo || {},
+								operation: operation,
+							},
+						};
+						const executionData = this.helpers.constructExecutionMetaData(
+							this.helpers.returnJsonArray(companyWithMetadata),
+							{ itemData: { item: i } },
+						);
+						returnData.push(...executionData);
+					}
+				} else if (resource === 'tenant' && operation === 'getAll' && responseData.tenants && Array.isArray(responseData.tenants)) {
+					// For tenant getAll operation, create separate execution data for each tenant
+					for (const tenant of responseData.tenants) {
+						const tenantWithMetadata = {
+							...tenant,
+							_metadata: {
+								pageInfo: (responseData as any).summary?.pageInfo || (responseData as any).pageInfo || {},
+								operation: operation,
+							},
+						};
+						const executionData = this.helpers.constructExecutionMetaData(
+							this.helpers.returnJsonArray(tenantWithMetadata),
 							{ itemData: { item: i } },
 						);
 						returnData.push(...executionData);
