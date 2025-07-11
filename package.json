@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-plain",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "n8n node for Plain API integration",
   "keywords": [
     "n8n-community-node-package"
@@ -11,11 +11,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/702ron/n8n-nodes-plain.git"
+    "url": "https://github.com/702ron/n8n-plain-node.git"
   },
-  "homepage": "https://github.com/702ron/n8n-nodes-plain#readme",
+  "homepage": "https://github.com/702ron/n8n-plain-node#readme",
   "bugs": {
-    "url": "https://github.com/702ron/n8n-nodes-plain/issues"
+    "url": "https://github.com/702ron/n8n-plain-node/issues"
   },
   "license": "MIT",
   "main": "index.js",
