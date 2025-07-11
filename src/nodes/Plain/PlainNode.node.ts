@@ -256,9 +256,14 @@ export class PlainNode implements INodeType {
 							value: `${schema.key}|${schema.type}|${schema.id}`,
 						})) || [];
 
+					// If no string schemas found, provide helpful message
+					if (stringSchemas.length === 0) {
+						return [{ name: 'No string fields available', value: '' }];
+					}
+
 					return stringSchemas;
 				} catch (error) {
-					return [];
+					return [{ name: `Error loading string fields: ${error instanceof Error ? error.message : 'Unknown error'}`, value: '' }];
 				}
 			},
 			async getBoolFieldSchemas(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
@@ -291,9 +296,14 @@ export class PlainNode implements INodeType {
 							value: `${schema.key}|${schema.type}|${schema.id}`,
 						})) || [];
 
+					// If no bool schemas found, provide helpful message
+					if (boolSchemas.length === 0) {
+						return [{ name: 'No boolean fields available', value: '' }];
+					}
+
 					return boolSchemas;
 				} catch (error) {
-					return [];
+					return [{ name: `Error loading boolean fields: ${error instanceof Error ? error.message : 'Unknown error'}`, value: '' }];
 				}
 			},
 			async getEnumFieldSchemas(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
@@ -326,32 +336,111 @@ export class PlainNode implements INodeType {
 							value: `${schema.key}|${schema.type}|${schema.id}`,
 						})) || [];
 
+					// Add debugging information
+					console.log('Enum schemas found:', enumSchemas);
+
+					// If no enum schemas found, provide helpful message
+					if (enumSchemas.length === 0) {
+						return [{ name: 'No enum fields available', value: '' }];
+					}
+
 					return enumSchemas;
 				} catch (error) {
-					return [];
+					return [{ name: `Error loading enum fields: ${error instanceof Error ? error.message : 'Unknown error'}`, value: '' }];
 				}
 			},
 			async getThreadFieldEnumValues(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				const enumFieldSchema = this.getCurrentNodeParameter('enumFieldSchema') as string;
-				
-				if (!enumFieldSchema || !enumFieldSchema.includes('|ENUM|')) {
-					return [];
-				}
-
-				// Extract schema ID from the encoded value
-				const schemaId = enumFieldSchema.split('|')[2];
-				
-				const query = `
-					query getThreadFieldSchema($threadFieldSchemaId: ID!) {
-						threadFieldSchema(threadFieldSchemaId: $threadFieldSchemaId) {
-							enumValues
+				try {
+					// Try to get the enum field schema using different approaches
+					let enumFieldSchema = '';
+					
+					// Method 1: Try getCurrentNodeParameter
+					try {
+						enumFieldSchema = this.getCurrentNodeParameter('enumFieldSchema') as string;
+					} catch (error) {
+						// Ignore error
+					}
+					
+					// Method 2: Try getting from the current node state
+					if (!enumFieldSchema) {
+						try {
+							// Try to get the parameter from the current node state
+							const nodeState = this.getNodeParameter('updateThreadFields', 0, {}) as any;
+							if (nodeState && nodeState.field && nodeState.field.length > 0) {
+								enumFieldSchema = nodeState.field[0].enumFieldSchema;
+							}
+						} catch (error) {
+							// Ignore error
 						}
 					}
-				`;
+					
+					// Add debugging information
+					console.log('getThreadFieldEnumValues called with enumFieldSchema:', enumFieldSchema);
+					
+					// If still not found, check if we have the actual enum field value selected
+					if (!enumFieldSchema || enumFieldSchema === '') {
+						console.log('No enum field schema found, checking if user has selected a specific enum field');
+						
+						// Since we know there's only one enum field available, let's check if it's been selected
+						// by examining the available enum field schemas
+						const query = `
+							query getThreadFieldSchemas {
+								threadFieldSchemas(first: 100) {
+									edges {
+										node {
+											id
+											label
+											key
+											type
+											enumValues
+											isRequired
+										}
+									}
+								}
+							}
+						`;
+						
+						try {
+							const response = await plainApiRequestLoadOptions.call(this, query, {});
+							const result = response as any;
+							
+							const enumSchemas = result.threadFieldSchemas?.edges
+								?.map((edge: any) => edge.node)
+								.filter((schema: any) => schema.type === 'ENUM') || [];
+							
+							if (enumSchemas.length > 0) {
+								// Use the first enum schema if available
+								const schema = enumSchemas[0];
+								enumFieldSchema = `${schema.key}|${schema.type}|${schema.id}`;
+								console.log('Using first available enum field schema:', enumFieldSchema);
+							} else {
+								return [{ name: 'No enum fields available', value: '' }];
+							}
+						} catch (error) {
+							return [{ name: 'Please select an enum field first', value: '' }];
+						}
+					}
+					
+					if (!enumFieldSchema.includes('|ENUM|')) {
+						return [{ name: `Invalid enum field format: ${enumFieldSchema}`, value: '' }];
+					}
 
-				try {
+					// Extract schema ID from the encoded value
+					const schemaId = enumFieldSchema.split('|')[2];
+					
+					if (!schemaId) {
+						return [{ name: 'Invalid enum field schema - no ID found', value: '' }];
+					}
+					
+					const query = `
+						query getThreadFieldSchema($threadFieldSchemaId: ID!) {
+							threadFieldSchema(threadFieldSchemaId: $threadFieldSchemaId) {
+								enumValues
+							}
+						}
+					`;
+
 					const response = await plainApiRequestLoadOptions.call(this, query, { threadFieldSchemaId: schemaId });
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any
 					const result = response as any;
 					
 					const enumValues = result.threadFieldSchema?.enumValues?.map((value: string) => ({
@@ -359,9 +448,48 @@ export class PlainNode implements INodeType {
 						value: value,
 					})) || [];
 
+					// If no enum values found, provide a helpful message
+					if (enumValues.length === 0) {
+						return [{ name: 'No enum values found for this field', value: '' }];
+					}
+
 					return enumValues;
 				} catch (error) {
-					// If there's an error, return empty array so the field still works
+					return [{ name: `Error getting enum field parameter: ${error instanceof Error ? error.message : 'Unknown error'}`, value: '' }];
+				}
+			},
+			async getAllThreadFieldSchemas(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				const query = `
+					query getThreadFieldSchemas {
+						threadFieldSchemas(first: 100) {
+							edges {
+								node {
+									id
+									label
+									key
+									type
+									enumValues
+									isRequired
+								}
+							}
+						}
+					}
+				`;
+
+				try {
+					const response = await plainApiRequestLoadOptions.call(this, query, {});
+					const result = response as any;
+					
+					const allSchemas = result.threadFieldSchemas?.edges
+						?.map((edge: any) => edge.node)
+						.map((schema: any) => ({
+							name: `${schema.label}${schema.isRequired ? ' *' : ''}`,
+							value: `${schema.key}|${schema.type}|${schema.id}`,
+							description: `Type: ${schema.type}`,
+						})) || [];
+
+					return allSchemas;
+				} catch (error) {
 					return [];
 				}
 			},
@@ -1217,7 +1345,7 @@ export class PlainNode implements INodeType {
 									} else if (fieldType === 'ENUM') {
 										fieldSchema = field.enumFieldSchema;
 									}
-
+									
 									// Parse the encoded fieldSchema value: "key|type|id"
 									const [key, type] = fieldSchema.split('|');
 									
