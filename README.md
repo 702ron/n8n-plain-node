@@ -111,4 +111,4 @@ To develop this node locally:
 
 ## License
 
-[MIT](LICENSE.md)
+[MIT](LICENSE)
