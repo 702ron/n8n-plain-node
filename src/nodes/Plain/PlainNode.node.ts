@@ -337,8 +337,7 @@ export class PlainNode implements INodeType {
 						})) || [];
 
 					// Add debugging information
-					console.log('Enum schemas found:', enumSchemas);
-
+	
 					// If no enum schemas found, provide helpful message
 					if (enumSchemas.length === 0) {
 						return [{ name: 'No enum fields available', value: '' }];
@@ -375,12 +374,10 @@ export class PlainNode implements INodeType {
 					}
 					
 					// Add debugging information
-					console.log('getThreadFieldEnumValues called with enumFieldSchema:', enumFieldSchema);
-					
+							
 					// If still not found, check if we have the actual enum field value selected
 					if (!enumFieldSchema || enumFieldSchema === '') {
-						console.log('No enum field schema found, checking if user has selected a specific enum field');
-						
+								
 						// Since we know there's only one enum field available, let's check if it's been selected
 						// by examining the available enum field schemas
 						const query = `
@@ -412,8 +409,7 @@ export class PlainNode implements INodeType {
 								// Use the first enum schema if available
 								const schema = enumSchemas[0];
 								enumFieldSchema = `${schema.key}|${schema.type}|${schema.id}`;
-								console.log('Using first available enum field schema:', enumFieldSchema);
-							} else {
+										} else {
 								return [{ name: 'No enum fields available', value: '' }];
 							}
 						} catch (error) {
